@@ -57,9 +57,10 @@
   ([csv-seq thresh]
   (reduce #(add-csv-row-to-pvector %1 %2 thresh) [] csv-seq)))
 
-(def pp-vectors (prom-csv-to-pvectors csv-rows))
+;; Prominence vectors with thresholding applied (>3.0 by default)
+(def tprominence-vectors (prom-csv-to-pvectors csv-rows))
 
-(println "pp-vector count:" (count pp-vectors))
+(println "tprominence-vectors row count:" (count tprominence-vectors))
 
 
 (defn vectors-to-csv-seq
@@ -71,8 +72,8 @@
     (concat [out-header] str-rows)))
 
 
-(with-open [fpp (clojure.java.io/writer "out-pp-filtered.csv" :encoding "UTF-8")]
-  (.write fpp (csvio/write-csv (vectors-to-csv-seq "Concepts" csv-headers pp-vectors))))
+(with-open [fpp (clojure.java.io/writer "out-prominence-threshold.csv" :encoding "UTF-8")]
+  (.write fpp (csvio/write-csv (vectors-to-csv-seq "Concepts" csv-headers tprominence-vectors))))
 
 
 
@@ -80,9 +81,9 @@
 (def t2 3)
 (def t3 9)
 
-(def row1 (pp-vectors t1))
-(def row2 (pp-vectors t2))
-(def row3 (pp-vectors t3))
+(def row1 (tprominence-vectors t1))
+(def row2 (tprominence-vectors t2))
+(def row3 (tprominence-vectors t3))
 
 
 (defn neighbour-count
@@ -92,7 +93,7 @@
 (def total-edges (reduce (fn [total pv]
                            (let [nc (neighbour-count pv)]
                              (+ total nc)))
-                         0 pp-vectors))
+                         0 tprominence-vectors))
 
 (defn row-edge-indices
   ([v]
@@ -123,8 +124,6 @@
 
 
 
-
-
 (println "total edges:" total-edges "no-dups:" (/ total-edges 2.0))
 
 (println "row1" (csv-headers t1) row1)
@@ -132,10 +131,10 @@
 (println "row3" (csv-headers t3) row3)
 
 (println "row1 edge inclusive indices:" (row-edge-indices row1))
-(println "row1 edge names:" (active-row-edge-names csv-headers [0 (pp-vectors 0)]))
+(println "row1 edge names:" (active-row-edge-names csv-headers [0 (tprominence-vectors 0)]))
 
 
-(def pedges (pp-matrix-active-edge-names csv-headers pp-vectors))
+(def pedges (pp-matrix-active-edge-names csv-headers tprominence-vectors))
 
 (println "pp-matrix linked edges:" (count pedges))
 (println pedges)
@@ -227,7 +226,7 @@
           (recur (conj smatrix rvector) (rest edges) (conj edge->nodes [nfrom nkey])))
         [smatrix edge->nodes]))))
 
-(def smset (similarity-matrix pp-vectors pedges))
+(def smset (similarity-matrix tprominence-vectors pedges))
 (def sm (first smset))
 (def edge-nodes-lookup (second smset))
 
@@ -270,14 +269,14 @@
         sc (if (> sc 0.0)
              (- 1.0 sc)
              (- 1.0 sc))]
-    (println ">>>>>>sc:" sc a b)
+    ;(println ">>>>>>sc:" sc a b)
     sc))
 
 
 (defn similarity-distance-0 [a b]
   (when (= a b)
     (println "ASKIING FOR SETL NODE DISTANCE>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>" a b))
-  (let [sc (cm/mget (pp-vectors a) b)
+  (let [sc (cm/mget (tprominence-vectors a) b)
         sc (if (> sc 0.0)
              (-  1.0 sc)
              100000000.0)]
@@ -290,8 +289,8 @@
 ; min dist between clusters
 (defn dist-min [rec1 rec2]
   ;;(println "MD DIST START"
-  ;;        "r1:" (:name rec1) (count (:nodes rec1)) "r2:" (:name rec2) (count (:nodes rec2)))
-  (when (or (= 0 (count (:nodes rec1))) (= 0 (count (:nodes rec2))))
+  ;;        "r1:" (:name rec1) (count (:links rec1)) "r2:" (:name rec2) (count (:links rec2)))
+  (when (or (= 0 (count (:links rec1))) (= 0 (count (:links rec2))))
     (println "MD REC1" rec1)
     (println "MD REC2" rec2))
 
@@ -299,7 +298,7 @@
              (map (fn
                     [[n1 n2]]
                     (similarity-distance  n1 n2))
-                  (combo/cartesian-product (:nodes rec1) (:nodes rec2))))]
+                  (combo/cartesian-product (:links rec1) (:links rec2))))]
     (println "MIN DIST" md (:name rec1) (:name rec2))
     md))
 
@@ -311,8 +310,8 @@
 ; min dist between clusters
 (defn dist-avg [rec1 rec2]
   ;;(println "MD DIST START"
-  ;;        "r1:" (:name rec1) (count (:nodes rec1)) "r2:" (:name rec2) (count (:nodes rec2)))
-  (when (or (= 0 (count (:nodes rec1))) (= 0 (count (:nodes rec2))))
+  ;;        "r1:" (:name rec1) (count (:links rec1)) "r2:" (:name rec2) (count (:links rec2)))
+  (when (or (= 0 (count (:links rec1))) (= 0 (count (:links rec2))))
     (println "MD REC1" rec1)
     (println "MD REC2" rec2))
 
@@ -320,8 +319,8 @@
                   (map (fn
                          [[n1 n2]]
                          (similarity-distance  n1 n2))
-                       (combo/cartesian-product (:nodes rec1) (:nodes rec2))))]
-    (println "AVG DIST" md (:name rec1) (:name rec2))
+                       (combo/cartesian-product (:links rec1) (:links rec2))))]
+    ;(println "AVG DIST" md (:name rec1) (:name rec2))
     md))
 
 (def dist dist-avg)
@@ -337,16 +336,16 @@
     nil)
     (do
     (println "merge:" (map #(str ", " (:name %)) recs))
-    (let [nodes (flatten (map :nodes recs))
+    (let [nodes (flatten (map :links recs))
           nrec {:name (apply str ":" (map :name recs))
-                :nodes nodes
+                :links nodes
                 :merged-cluster-count (count recs)
                 :link-count (count nodes)
                 :total-merges (swap! mtotal inc)}]
     nrec))))
 
 (defn to->rec [i]
-  {:nodes [i]
+  {:links [i]
    :name (edge-labels i)})
 
 (def xlist (map to->rec (range (count sim-labels))))
@@ -385,6 +384,25 @@
               (conj new-cluster))))))))
 
 
+(defn cluster6 [distance-fn average-fn dataset]
+  (let [distance-fn (memoize
+                      (fn [clust1 clust2]
+                        (distance-fn (:data clust1) (:data clust2))))
+        cset (set (map chier/bi-cluster dataset))]
+    (loop [clusters  cset merges [cset] res {}]
+      (if (<= (count clusters) 1)
+        [(first clusters) merges res]
+        (let [[closest lowest-pair] (find-closest5 distance-fn clusters)
+              averaged-data (average-fn (map :data lowest-pair))
+              new-cluster (chier/bi-cluster averaged-data lowest-pair closest)]
+          (let [new-cluster-set (-> (apply disj clusters lowest-pair)
+                                    (conj new-cluster))
+                ]
+          (recur
+            new-cluster-set (conj merges new-cluster-set) res
+            )))))))
+
+
 
 (defn dendrogram [hier-data]
   (cvizd/->svg hier-data :name))
@@ -394,25 +412,121 @@
 (defn generate-dendrogram []
   (->> xlist
     ;;(load-csv (str "test/data/" dataset-name".csv"))
-    (cluster5 dist avg)
+    (cluster6 dist avg)
     dendrogram
     (spit (str dataset-name ".svg")) ))
 
 (defn generate-clusters []
   (->> xlist
        ;;(load-csv (str "test/data/" dataset-name".csv"))
-       (cluster5 dist avg)))
+       (cluster6 dist avg)))
+
+
+(defn cluster-links-to-nodes
+  [links]
+    (reduce #(apply conj %1 %2) #{} (map edge-nodes-lookup links)))
+
+(defn cluster-merge-to-links [c] (map (comp :links :data) c))
+
+
+(defn cluster-partition-density
+  [links]
+  (let [nlinks (count links)
+        nnodes (count (cluster-links-to-nodes links))]
+    (println "links" links)
+    (println "nlinks" nlinks "nnodes" nnodes)
+    (if (= nnodes 2)
+      0.0
+      (let [cdensity (/ (- nlinks (- nnodes 1.0))
+                        (- (/ (* nnodes (- nnodes 1.0)) 2.0)
+                           (- nnodes 1.0)))]
+        (println "cdensity:" cdensity)
+      cdensity))))
+
+(defn cluster-partition-density2
+  [links]
+  (let [nlinks (count links)
+        nc (count (cluster-links-to-nodes links))]
+    (println "links" links)
+    (println "nlinks" nlinks "nnodes" nc)
+    (if (= nc 2)
+      0.0
+      (let [nc-1 (- nc 1.0)
+            cdensity (/ (* nlinks (- nlinks nc-1))
+                        (* (- nc 2.0) nc-1))]
+        (println "cdensity:" cdensity)
+        cdensity))))
 
 
 
-(def xc (generate-clusters))
+
+(defn network-partition-density
+  [link-sets edge-count]
+  (let [dsum (reduce #(+ %1 (cluster-partition-density %2)) 0.0 link-sets)]
+    (/ (* 2 dsum) edge-count)))
+
+(defn network-partition-density2
+  [link-sets edge-count]
+  (let [dsum (reduce #(+ %1 (cluster-partition-density2 %2)) 0.0 link-sets)]
+    (/ (* 2 dsum) edge-count)))
+
+
+
+
+
+;;double partitionDensity =
+;;(numLinks - (numNodes - 1d))
+;;/ (((numNodes * (numNodes - 1d)) / 2d)
+;;    - (numLinks - 1));
+;;partitionDensitySum += partitionDensity;
+;;}
+
+(def xall (generate-clusters))
+(def xc (first xall))
+
 
 ; M = Total Number of Links
 
+(defn cnode [node]
+  (if node
+    node
+    {:branch? false name "EMPTY"}))
 
-(defn partition-density
-  []
-  )
+(defn walk-dendrogram
+  [start]
+  (loop [visit-nodes [[start 0]]]
+         (if-let [wrapper (first visit-nodes)]
+           (let [[bnode level] wrapper
+                 d (:data bnode)]
+             (println "nodedata:" level (:distance bnode) (:name d))
+             (if (:branch? bnode)
+               (recur (conj (rest visit-nodes)
+                            [(cnode (:left bnode)) (inc level)]
+                            [(cnode (:right bnode)) (inc level)]))
+               (recur (rest visit-nodes))))
+      nil)))
+
+
+
+(defn prefix-walk
+  ([visitor-fn msg clust]
+   (prefix-walk visitor-fn msg clust 0))
+
+  ([visitor-fn msg clust level]
+   (when-not (empty? clust)
+     (visitor-fn msg clust level)
+     (prefix-walk visitor-fn :l (:left clust) (inc level))
+     (prefix-walk visitor-fn :r (:right clust) (inc level)))))
+
+(defn v1 [msg bnode level]
+  (let [d (:data bnode)
+        links (:links d)]
+  (println :level msg level :distance2 (:distance bnode) links :name4 (map edge-labels (take 4 links)))))
+
+
+(prefix-walk v1 :root xc)
+
+
 
 
 

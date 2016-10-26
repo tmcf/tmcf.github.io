@@ -1,12 +1,15 @@
 (ns lcluster-app.core
   (:require [reagent.core :as r]
             [reagent.session :as session]
-            [secretary.core :as secretary :include-macros true]
             [goog.events :as events]
-            [goog.history.EventType :as HistoryEventType]
             [markdown.core :refer [md->html]]
             [lcluster-app.ajax :refer [load-interceptors!]]
-            [ajax.core :refer [GET POST]])
+            [ajax.core :refer [GET POST]]
+            [lcluster-app.pages.core :refer [rpage]]
+            [lxm.brouting :as broute]
+
+            [lcluster-app.pages.vtest1]
+            )
   (:import goog.History))
 
 (defn nav-link [uri title page collapsed?]
@@ -14,66 +17,54 @@
    {:class (when (= page (session/get :page)) "active")}
    [:a.nav-link
     {:href uri
-     :on-click #(reset! collapsed? true)} title]])
+     :on-click nil} title]])
 
 (defn navbar []
-  (let [collapsed? (r/atom true)]
+  (let [collapsed? false]
     (fn []
       [:nav.navbar.navbar-light.bg-faded
-       [:button.navbar-toggler.hidden-sm-up
-        {:on-click #(swap! collapsed? not)} "☰"]
+      ; [:button.navbar-toggler.hidden-sm-up
+      ;  {:on-click #(swap! collapsed? not)} "☰"]
        [:div.collapse.navbar-toggleable-xs
-        (when-not @collapsed? {:class "in"})
-        [:a.navbar-brand {:href "#/"} "lcluster-app"]
+        (when-not collapsed? {:class "in"})
+        [:a.navbar-brand {:href "#/"} "LexSurveys Cluster Tests:"]
         [:ul.nav.navbar-nav
-         [nav-link "#/" "Home" :home collapsed?]
-         [nav-link "#/about" "About" :about collapsed?]]]])))
+         [nav-link "home" "Home2" :home collapsed?]
+         [nav-link "vtest1" "Visual Test1" :vtest1 collapsed?]
+         [nav-link "about" "About" :about collapsed?]]]])))
 
-(defn about-page []
+(defmethod rpage :about []
   [:div.container
    [:div.row
     [:div.col-md-12
-     "this is the story of lcluster-app... work in progress"]]])
+     "Z1 lcluster-app... work in progress"]]])
 
-(defn home-page []
+(defmethod rpage  :home []
   [:div.container
    [:div.jumbotron
-    [:h1 "Welcome to lcluster-app"]
-    [:p "Time to start building your site!"]
-    [:p [:a.btn.btn-primary.btn-lg {:href "http://luminusweb.net"} "Learn more »"]]]
+    [:h1 "Clustering Tests"]
+    ]
    (when-let [docs (session/get :docs)]
      [:div.row
       [:div.col-md-12
        [:div {:dangerouslySetInnerHTML
               {:__html (md->html docs)}}]]])])
 
-(def pages
-  {:home #'home-page
-   :about #'about-page})
 
-(defn page []
-  [(pages (session/get :page))])
+;; Application UI routes
+(def routes ["/" { "home" :home
+                    "vtest1" :vtest1
+                    "about" :about}])
 
-;; -------------------------
-;; Routes
-(secretary/set-config! :prefix "#")
 
-(secretary/defroute "/" []
-  (session/put! :page :home))
+(defn app-page
+  []
+  (fn []
+    [:div.container-fluid
+     [:div.row
+      [:div.col-md-12
+         (rpage (broute/active-page))]]]))
 
-(secretary/defroute "/about" []
-  (session/put! :page :about))
-
-;; -------------------------
-;; History
-;; must be called after routes have been defined
-(defn hook-browser-navigation! []
-  (doto (History.)
-        (events/listen
-          HistoryEventType/NAVIGATE
-          (fn [event]
-              (secretary/dispatch! (.-token event))))
-        (.setEnabled true)))
 
 ;; -------------------------
 ;; Initialize app
@@ -82,10 +73,11 @@
 
 (defn mount-components []
   (r/render [#'navbar] (.getElementById js/document "navbar"))
-  (r/render [#'page] (.getElementById js/document "app")))
+  (r/render [#'app-page] (.getElementById js/document "app")))
 
 (defn init! []
   (load-interceptors!)
   (fetch-docs!)
-  (hook-browser-navigation!)
+  ;(hook-browser-navigation!)
+  (broute/start-routing-history routes)
   (mount-components))

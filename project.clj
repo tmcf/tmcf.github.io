@@ -16,7 +16,7 @@
                  [ring-middleware-format "0.7.0"]
                  [metosin/ring-http-response "0.8.0"]
                  [bouncer "1.0.0"]
-                 [org.webjars/bootstrap "4.0.0-alpha.3"]
+                 [org.webjars/bootstrap "3.3.7"]
                  [org.webjars/font-awesome "4.6.3"]
                  [org.webjars.bower/tether "1.3.7"]
                  [org.clojure/tools.logging "0.3.1"]
@@ -39,6 +39,20 @@
 
                                         ; to allow nightlight plugin to worOAk
                  [org.flatland/useful "0.9.3"]
+
+                 ;; cljs
+                 [prismatic/dommy "1.1.0"]
+                 [bidi "2.0.9"]
+                 [kibu/pushy "0.3.6"]
+                 [cljsjs/react-bootstrap "0.30.2-0"]
+                 [cljsjs/auth0-lock "10.2.1-0"]
+                 [cljsjs/moment "2.10.6-4"]
+                 [cljsjs/jquery "2.2.2-0"]
+
+                 [cljsjs/d3 "4.2.2-0"]
+
+                 [cljsjs/react-dropzone "3.7.0-0"]
+
                  ]
 
   :min-lein-version "2.0.0"
