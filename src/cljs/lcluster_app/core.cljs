@@ -9,6 +9,7 @@
             [lxm.brouting :as broute]
 
             [lcluster-app.pages.vtest1]
+            [lcluster-app.pages.vtest2]
             )
   (:import goog.History))
 
@@ -31,6 +32,7 @@
         [:ul.nav.navbar-nav
          [nav-link "home" "Home2" :home collapsed?]
          [nav-link "vtest1" "Visual Test1" :vtest1 collapsed?]
+         [nav-link "vtest2" "Cluster Test2" :vtest2 collapsed?]
          [nav-link "about" "About" :about collapsed?]]]])))
 
 (defmethod rpage :about []
@@ -53,7 +55,8 @@
 
 ;; Application UI routes
 (def routes ["/" { "home" :home
-                    "vtest1" :vtest1
+                  "vtest1" :vtest1
+                  "vtest2" :vtest2
                     "about" :about}])
 
 
