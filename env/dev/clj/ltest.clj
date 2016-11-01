@@ -232,7 +232,7 @@
 
 
 (println "similarity matrix:" sm)
-(println edge-nodes-lookup)
+(println "!!!!!edge-nodes-lookup" edge-nodes-lookup)
 
 
 (def edge-labels (into [] (map first pedges)))
@@ -320,7 +320,9 @@
                          [[n1 n2]]
                          (similarity-distance  n1 n2))
                        (combo/cartesian-product (:links rec1) (:links rec2))))]
-    ;(println "AVG DIST" md (:name rec1) (:name rec2))
+    ;(println "rec1" (:links rec1))
+    ;(println "rec2" (:links rec2))
+    ;(println "CARTESIAN" (combo/cartesian-product (:links rec1) (:links rec2)))
     md))
 
 (def dist dist-avg)
@@ -470,7 +472,8 @@
   (let [dsum (reduce #(+ %1 (cluster-partition-density2 %2)) 0.0 link-sets)]
     (/ (* 2 dsum) edge-count)))
 
-
+;;(map-indexed (fn [idx item]
+;; [idx (ltest/network-partition-density2 item 72)]) (map cluster-merge-to-links merges))
 
 
 
@@ -528,7 +531,7 @@
 
 
 
-
+;(map (fn [l] (println "MERGE-SET") (map (fn [c] (println (map #(lc/edge-label (:headers p) %) c))) l)) last20-5)
 
 
 
