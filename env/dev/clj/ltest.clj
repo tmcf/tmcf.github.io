@@ -472,8 +472,7 @@
   (let [dsum (reduce #(+ %1 (cluster-partition-density2 %2)) 0.0 link-sets)]
     (/ (* 2 dsum) edge-count)))
 
-;;(map-indexed (fn [idx item]
-;; [idx (ltest/network-partition-density2 item 72)]) (map cluster-merge-to-links merges))
+;;(map-indexed (fn [idx item] [idx (ltest/network-partition-density2 item 72)]) (map cluster-merge-to-links merges))
 
 
 

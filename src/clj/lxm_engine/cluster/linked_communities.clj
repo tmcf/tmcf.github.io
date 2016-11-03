@@ -161,9 +161,24 @@
 
 (defn tanimoto-distance
   "Return 1 minus tanimoto-coefficient so it is a
-  similarity/distance metric"
+  similarity/distance metric. Technically a distance coefficient"
   ^double [v1 v2]
   (- 1.0 (tanimoto-coefficient v1 v2)))
+
+(defn- impost-nodes
+  "Similarity is calculated of [i k] [j k] using j,k only (impost nodes),
+  so return appropriate nodes or nil if the edges are disjoint."
+  [[from-i to-i] [from-j to-j]]
+  (cond
+    (= from-i from-j) [to-i to-j]
+    (= from-i to-j) [to-i from-j]
+    (= to-i from-j) [from-i to-j]
+    (= to-i to-j)  [from-i from-j]
+    :else
+    (do ;(println "Unrelated edges:" from-i to-i "/" from-j to-j)
+        nil)
+    ))
+
 
 (defn pvec->similarity-vec
   "calc similarity between this row's vector and the vector's of all linked (neighbour) rows"
@@ -173,12 +188,35 @@
                    (vec-neighbours v1 v1-row)))))
 
 
+(defn similarity-vec0-bad
+  "Given an edge, calculate a similarity vector to the entire edge set."
+  [[nfrom-i to-i :as ik] pvectors edges similarity-fn]
+  (let [v1 (pvectors nfrom-i)]
+    (cm/array (map (fn [[nfrom-j to-j :as jk]]
+                     (let [v2 (pvectors nfrom-j)
+                           _ (println "v1:" nfrom-i v1)
+                           _ (println "v2:" to-j v2)
+                           s (similarity-fn v1 v2)]
+                       (println "similarity:" ik jk s "\n")
+                       s)) edges))))
+
 (defn similarity-vec
   "Given an edge, calculate a similarity vector to the entire edge set."
-  [[nfrom-i to-i] pvectors edges similarity-fn]
-  (let [v1 (pvectors nfrom-i)]
-    (cm/array (map (fn [[nfrom-j to-j]]
-                        (similarity-fn v1 (pvectors nfrom-j))) edges))))
+  [[nfrom-i to-i :as ik] pvectors edges similarity-fn]
+  (let []
+    (cm/array (map (fn [[nfrom-j to-j :as jk]]
+                     (let [[i j :as inodes] (impost-nodes ik jk)]
+                       (if inodes
+                       (let [vi (pvectors i)
+                             vj (pvectors j)
+                             _ (println "vi:" i vi)
+                             _ (println "vj:" j vj)
+                             sim (similarity-fn vi vj)]
+                         (println "zsimilarity:" ik jk sim "\n")
+                         sim)
+                       (do
+                        ; (println "no keystone / similarity:" ik jk 0.0"\n")
+                         0.0)))) edges))))
 
 
 
@@ -218,18 +256,29 @@
 (defn cluster-partition-density
   ^double [cluster-edges]
   (let [nlinks (count cluster-edges)
-        nc (count (cluster-edges-to-nodes cluster-edges))]
+        nc (count (cluster-edges-to-nodes cluster-edges))
+        _ (println "nlinks:" nlinks "nnodes:" nc) ;cluster-edges)
+        ;_ (println "nnodes:" nc (cluster-edges-to-nodes cluster-edges))
+        ]
     (if (= nc 2)
       0.0
       (let [nc-1 (- nc 1.0)
             cdensity (/ (* nlinks (- nlinks nc-1))
-                        (* (- nc 2.0) nc-1))]
+                        (* (- nc 2.0) nc-1))
+
+            cdensity2 (/ (- nlinks nc-1)
+                         (- (/ (* nc nc -1) 2) nc-1))
+            ]
+        (println "cdensity1:" cdensity "cdensity2:" cdensity2)
         cdensity))))
 
 (defn network-partition-density
   [network total-edge-count]
-  (let [dsum (reduce #(+ %1 (cluster-partition-density %2)) 0.0 network)]
-    (/ (* 2.0 dsum) total-edge-count)))
+  (let [dsum (reduce #(+ %1 (cluster-partition-density %2)) 0.0 network)
+        dnetwork (/ (* 2.0 dsum) total-edge-count)]
+    (println "Network Density:" dnetwork)
+    dnetwork))
+
 
 (defn create-default-post-merge-fn
   "Keep track of cluster merge history"
@@ -276,17 +325,7 @@
     )
   )
 
-(defn- impost-nodes
-  "Similarity is calculated of [i k] [j k] using j,k only (impost nodes),
-  so return appropriate nodes or nil if the edges are disjoint."
-  [[from-i to-i] [from-j to-j]]
-  (cond
-    (= from-i from-j) [to-i to-j]
-    (= from-i to-j) [to-i from-j]
-    (= to-i from-j) [from-i to-j]
-    (= to-i to-j)  [from-i from-j]
-    :else nil
-    ))
+
 
 
 
@@ -299,15 +338,28 @@
   [svectors]
   (fn [edge1 edge2]
     (let [[impost1 impost2 :as inodes] (impost-nodes edge1 edge2)
-          sim (if inodes
-                (cm/mget (svectors impost1) impost2)
-                0.0)]
-      (- 1.0 sim))))
+          dist (if inodes
+                (- 1.0 (cm/mget (svectors impost1) impost2))
+                nil)]
+      dist)))
+
+
+(defn average
+  [numbers]
+  (let [nc (count numbers)]
+    (if (= nc 0)
+      (do
+        (println "nc = 0")
+        0)
+      (/ (apply + numbers) nc))))
+
 
 (defn dist-single-link-fn [simfn]
   (fn [lc1 lc2]
-    (let [md (apply min
-                    (map (fn [[n1 n2 :as nx]]
+    (when (= lc1 lc2)
+      (println "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$EQ CLUSTER" lc1 lc2))
+    (let [md (average
+               (keep (fn [[n1 n2 :as nx]]
                            (let [s (simfn  n1 n2)]
                              ;;(println "nx: " nx s)
                              s))
@@ -328,13 +380,27 @@
   (hier-cluster-ex (->single-clusters (:edges simset)) distfn cmergefn postmergefn)))
 
 
+(def tfile "paper0.csv")
+;(def tfile "conceptcc-prominence.csv")
 
 (defn test1 []
-  (let [p (lc/prominence-csv->vset "conceptcc-prominence.csv")
-        s (lc/prom-vset->similarity-vset p)
-        x (lc/hier-cluster-simset s)]
+  (let [p (prominence-csv->vset tfile)
+        s (prom-vset->similarity-vset p)
+        x (hier-cluster-simset s)]
     [p s x]
     ))
+
+(defn test2 []
+  (let [[p s x :as r] (test1)
+        m (last x)]
+        [p s x (map-indexed
+                 #(println "idx:" %1 "density:" (:density %2)
+                           " cluster-count:" (:cluster-count %2))
+                 (:mclusters m))]
+        ))
+
+
+
 
 
 
