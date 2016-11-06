@@ -224,8 +224,9 @@
   "Convert a prominence matrix (vector set) to
   a linked community similarity matrix (vector set)"
   [vset]
-  (let [sfn (memoize tanimoto-coefficient)
+  (let [sfn (memoize tanimoto-distance) ;tanimoto-coefficient)
         edges (vset-edges vset)
+        edgepair->sidx (reduce (fn [es [sidx edge]] (assoc es edge sidx)) {} (map-indexed vector edges))
         pvectors (:vectors vset)
         ; for each edge, calculate similarity to all other edges
         ; nieve implementation
@@ -233,18 +234,32 @@
                             (fn [r cedge]
                               (conj r (similarity-vec cedge pvectors edges sfn)))
                             [] edges))]
-    {:edges edges :vectors svectors :headers (edge-labels edges (:headers vset))}
+    {:edgepair->sidx edgepair->sidx :edges edges :vectors svectors :headers (edge-labels edges (:headers vset))}
   ))
+
+
+(def MAX_CLUSTER_DISTANCE 10.0)
+
+(defn mclusters-str
+  [mclusters]
+  (clojure.string/join "||" (map (fn [i] (into [] (:data i))) mclusters)))
+
+
 
 (defn closest-clusters
   [clusters cdist-fn]
+  (println "closest-clusters....")
   (reduce
     (fn [[low-dist low-cluster-combo_ :as current-low] cluster-combo]
-      (let [dist (apply cdist-fn cluster-combo)]
-        (if (< dist low-dist)
+      (let [_ (println "closest-clusters/call cluster-distance on combo:"
+                       (mclusters-str cluster-combo))
+            dist (apply cdist-fn cluster-combo)
+            _ (println "closest-clusters:  got pair dist:" (format "%2.2E" dist) "for"
+                       (mclusters-str cluster-combo))]
+        (if (<= dist low-dist)
           [dist cluster-combo]
           current-low)))
-    [Double/MAX_VALUE [-1 -1]]
+    [MAX_CLUSTER_DISTANCE [-1 -1]]
     (combo/combinations clusters 2)))
 
 
@@ -253,12 +268,19 @@
   [edges]
   (distinct (flatten edges)))
 
+(defn cluster-edges-to-labels
+  [c headers]
+  (let [ nodes (cluster-edges-to-nodes c)
+        node-labels (map #(get headers %) nodes)]
+    node-labels))
+
+
 (defn cluster-partition-density
   ^double [cluster-edges]
   (let [nlinks (count cluster-edges)
         nc (count (cluster-edges-to-nodes cluster-edges))
         _ (println "nlinks:" nlinks "nnodes:" nc) ;cluster-edges)
-        ;_ (println "nnodes:" nc (cluster-edges-to-nodes cluster-edges))
+        _ (println "nnodes:" nc (cluster-edges-to-nodes cluster-edges))
         ]
     (if (= nc 2)
       0.0
@@ -269,14 +291,14 @@
             cdensity2 (/ (- nlinks nc-1)
                          (- (/ (* nc nc -1) 2) nc-1))
             ]
-        (println "cdensity1:" cdensity "cdensity2:" cdensity2)
+        ;(println "cpdensity1:" cdensity "cpdensity2:" cdensity2)
         cdensity))))
 
 (defn network-partition-density
   [network total-edge-count]
   (let [dsum (reduce #(+ %1 (cluster-partition-density %2)) 0.0 network)
         dnetwork (/ (* 2.0 dsum) total-edge-count)]
-    (println "Network Density:" dnetwork)
+    (println "Network Density:" dnetwork "total-edge-count" total-edge-count)
     dnetwork))
 
 
@@ -287,12 +309,13 @@
     (fn ([] {:levels 0
              :mclusters []})
       ([mdata new-clusters]
-       (let [levels (:levels mdata)
+       (let [levels (inc (:levels mdata))
              old-networks (:mclusters mdata)
              new-network (into [] (map :data new-clusters))
              ndensity (network-partition-density new-network ecount)]
-         {:levels (inc levels)
-          :mclusters (conj old-networks {:density ndensity
+         {:levels levels
+          :mclusters (conj old-networks {:merge levels
+                                         :density ndensity
                                          :cluster-count (count new-network)
                                          :clusters new-network})})))))
 
@@ -304,17 +327,28 @@
 
 
 
+
 (defn hier-cluster-ex
   [initial-clusters cdist-fn cmerge-fn post-merge-fn]
   (let [post-merge-fn (or post-merge-fn post-merge-fn)
         cdist-fn (memoize (fn [c1 c2]
-                           (cdist-fn (:data c1) (:data c2))))
+                            (cdist-fn (:data c1) (:data c2))))
+        ;cdist-fn (fn [c1 c2]
+        ;                    (cdist-fn (:data c1) (:data c2)))
         starting-mclusters (set (map chier/bi-cluster initial-clusters))
         [mclusters mdata] (loop [mclusters starting-mclusters
-                                 mdata (post-merge-fn)]
+                                 mdata (post-merge-fn (post-merge-fn) starting-mclusters)]
+                            (let [md (last (:mclusters mdata))]
+                              (println "Pass#" (:levels mdata) "cluster count:" (:cluster-count md))
+                              (doseq [c (:clusters md)]
+                                (println "cluster:" c))
+                              )
                             (if (<= (count mclusters) 1)
                               [mclusters mdata]
-                              (let [[cdistance closest-mpair] (closest-clusters mclusters cdist-fn)
+                              (let [_ (println "Pass:" (:levels mdata) "Find closest:============================")
+                                    [cdistance closest-mpair] (closest-clusters mclusters cdist-fn)
+                                    _ (println (format "Found Closest clusters:%2.2E" cdistance)
+                                               (clojure.string/join "|" (map :data closest-mpair)))
                                     combined-cluster (apply cmerge-fn (map :data closest-mpair))
                                     combined-mcluster (chier/bi-cluster combined-cluster closest-mpair cdistance)
                                     mclusters (-> (apply disj mclusters closest-mpair)
@@ -335,35 +369,41 @@
   "Return a function that given 2 edges [1 2] [2 5]
   will return the distance ( 1- similarity) between the impost nodes.
   Edges with no shared keystone get a similarity of 0, returning a distance of 1.0"
-  [svectors]
+  [svectors edge->sidx]
   (fn [edge1 edge2]
-    (let [[impost1 impost2 :as inodes] (impost-nodes edge1 edge2)
-          dist (if inodes
-                (- 1.0 (cm/mget (svectors impost1) impost2))
-                nil)]
+    (let [e1-idx (edge->sidx edge1)
+          e2-idx (edge->sidx edge2)
+          dist (- 1.0 (cm/mget (svectors e1-idx) e2-idx))]
       dist)))
 
 
 (defn average
   [numbers]
   (let [nc (count numbers)]
+    (if (not numbers) (println "NO NUMBERS"))
     (if (= nc 0)
       (do
         (println "nc = 0")
-        0)
+        1.0)
       (/ (apply + numbers) nc))))
 
 
 (defn dist-single-link-fn [simfn]
   (fn [lc1 lc2]
-    (when (= lc1 lc2)
-      (println "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$EQ CLUSTER" lc1 lc2))
-    (let [md (average
-               (keep (fn [[n1 n2 :as nx]]
-                           (let [s (simfn  n1 n2)]
-                             ;;(println "nx: " nx s)
-                             s))
-                         (combo/cartesian-product lc1 lc2)))]
+    (println "cluster-distance C1 links:" lc1)
+    (println "cluster-distance C2 links:" lc2)
+
+    (let [combos (combo/cartesian-product lc1 lc2)
+          _ (println "cluster-distance C1 C2 link combos:" combos)
+          similarites (map (fn [[n1 n2 :as nx]]
+                             (let [s (simfn  n1 n2)]
+                               s))
+                           combos)
+          md (apply min similarites)
+          ;;md (average similarites)
+          ;;md (average (filter #(< % 1.0) similarites))
+          _ (println "cluster-distance C1 C2 using min is:" (format "%2.2E" md)
+                     (reduce #(format "%s %2.2E" %1 %2) "" similarites))]
       md)))
 
 (defn merge-clusters
@@ -373,7 +413,7 @@
 
 (defn hier-cluster-simset
   [simset]
-  (let [link-simfn (link-sim-distance-fn (:vectors simset))
+  (let [link-simfn (link-sim-distance-fn (:vectors simset) (:edgepair->sidx simset))
         distfn (dist-single-link-fn link-simfn)
         cmergefn merge-clusters
         postmergefn (create-default-post-merge-fn simset)]
@@ -381,12 +421,13 @@
 
 
 (def tfile "paper0.csv")
-;(def tfile "conceptcc-prominence.csv")
+;;(def tfile "conceptcc-prominence.csv")
 
 (defn test1 []
   (let [p (prominence-csv->vset tfile)
         s (prom-vset->similarity-vset p)
         x (hier-cluster-simset s)]
+    (write-vset-csv s "Similarity", (str "similarity-" tfile))
     [p s x]
     ))
 
@@ -394,10 +435,63 @@
   (let [[p s x :as r] (test1)
         m (last x)]
         [p s x (map-indexed
-                 #(println "idx:" %1 "density:" (:density %2)
-                           " cluster-count:" (:cluster-count %2))
+                 #(let [md %2]
+                   (println "idx:" %1 "density:" (:density %2)
+                            " cluster-count:" (:cluster-count %2))
+                   (doseq [c (:clusters md)]
+                     (println "cluster:" c)))
                  (:mclusters m))]
         ))
+
+(defn test3 []
+  (let [[p s x :as r] (test1)
+         m (second x)
+         clusters (:mclusters m)
+         _ (println "Cluster count:" (count clusters))
+         max-cluster (reduce (fn [r c] (if (> (:density r) (:density c)) r c)) (first clusters) clusters)
+         sorted-clusters (reverse (sort-by :density clusters))]
+    (println (:merge max-cluster) "max density: " (:density max-cluster) ", cluster-count:" (:cluster-count max-cluster))
+    {:stuff [ p s x]
+     :clusters clusters
+     :max-cluster max-cluster
+     :sorted-clusters sorted-clusters}
+
+
+
+  ))
+
+
+
+(defn mdetails
+  [merge headers]
+  (println (dissoc merge :clusters))
+  (doseq [ c (:clusters merge)]
+    (let [ nodes (cluster-edges-to-nodes c)
+          node-labels (map #(get headers %) nodes)]
+      (println node-labels)
+      ))
+  )
+
+
+
+
+(defn sconvert
+  [ppcsv]
+  (let [p (parse-prominence-csv-headers-and-rows ppcsv)
+        all-nodes (:headers p)
+        all-rows (:rows p)
+        edges-and-weights (loop [results [] nodes all-nodes rows all-rows]
+                            (if-let [cnode (first nodes)]
+                              (let [crow (first rows)
+                                    results (concat results (map #(vector cnode %1 %2) all-nodes (rest crow)))]
+                                (recur results (rest nodes) (rest rows)))
+                              results))]
+    (println "ED" edges-and-weights)
+    (println "LINES:" (count edges-and-weights))
+    (with-open [wrt (clojure.java.io/writer (str ppcsv ".edges"))]
+      (doseq [[e1 e2 w] edges-and-weights]
+        (println e1 e2 w)
+        (.write wrt (str e1 " " e2 " " w "\n"))))))
 
 
 
