@@ -11,7 +11,13 @@
     [clustering.distance.euclidean :as cdist-euc]
     [clustering.distance.common :as cdist]
     [clustering.data-viz.dendrogram :as cvizd]
-    [clojure.math.combinatorics :as combo] )
+    [clojure.math.combinatorics :as combo]
+
+    [lacij.edit.graph :as le]
+    [lacij.view.graphview :as lv]
+    [lacij.layouts.layout :as lac]
+    )
+
  ;; (:import (com.leximancer.fs LexRFiles LexRFileSystems ILexRPath))
   )
 
@@ -339,10 +345,10 @@
              new-network (into [] (map :data new-clusters))
              ndensity (network-partition-density new-network ecount)]
          {:levels levels
-          :mclusters (conj old-networks {:merge levels
-                                         :density ndensity
-                                         :cluster-count (count new-network)
-                                         :clusters new-network})})))))
+          :mclusters (conj old-networks {:merge             levels
+                                         :partition-density ndensity
+                                         :cluster-count     (count new-network)
+                                         :clusters          new-network})})))))
 
 (defn ->single-clusters
   "Convert sequence of items to sequence of vectors each containing the single item.
@@ -354,12 +360,23 @@
 
 
 (defn hier-cluster-ex
+  "Perform hierarchical clustering. Returns vector containing [mclusters mdata],
+  where mcluster is the final single (meta) cluster with links to absorbed clusters.
+  (keys mdata) (:levels :mclusters)
+
+  And, mdata is a map containing snapshot maps of all merges.
+  :levels  total number of merges
+  :mclusters vector of merge metadata for each merge level:
+  Each merge entry contains:
+  :merge (the merge number)
+  :partition-density, parition-density for this merge
+  :cluster-count, number of clusters in this partition (network)
+  :clusters vector of clusters in this network. Each cluster is a vector of the edges in the cluster.
+  "
   [initial-clusters cdist-fn cmerge-fn post-merge-fn]
   (let [post-merge-fn (or post-merge-fn post-merge-fn)
         cdist-fn (memoize (fn [c1 c2]
                             (cdist-fn (:data c1) (:data c2))))
-        ;cdist-fn (fn [c1 c2]
-        ;                    (cdist-fn (:data c1) (:data c2)))
         starting-mclusters (set (map chier/bi-cluster initial-clusters))
         [mclusters mdata] (loop [mclusters starting-mclusters
                                  mdata (post-merge-fn (post-merge-fn) starting-mclusters)]
@@ -385,6 +402,12 @@
   )
 
 
+
+(defn create-node-prominence-weight-fn
+  [prom-vset]
+  (let [pvectors (:vectors prom-vset)]
+    (fn [n1 n2]
+      (cm/mget (pvectors n1) n2))))
 
 
 
@@ -424,8 +447,8 @@
                              (let [s (simfn  n1 n2)]
                                s))
                            combos)
-          md (apply min distances)
-          ;;md (average similarites)
+          ;;md (apply min distances)
+          md (average distances)
           ;;md (average (filter #(< % 1.0) similarites))
           _ (xprintln "cluster-distance C1 C2 using min is:" (format "%2.2E" md)
                      (reduce #(format "%s %2.2E" %1 %2) "" distances))]
@@ -450,6 +473,32 @@
 
 
 
+(defn cluster
+  [pfile]
+  (let [p (prominence-csv->vset tfile)
+        s (prom-vset->similarity-vset p)
+        x (hier-cluster-simset s)
+        mdata (second x)
+        merge-count (:levels mdata)
+        clusters (:mclusters mdata)]
+    ; for debug sanity check
+    (write-vset-csv p "Prominence", (str "threshold-" tfile))
+    (write-vset-csv s "Similarity", (str "distance-similarity-" tfile))
+    {:prominence-vset   p
+     :sdistance-vset    s
+     :merge-count       merge-count
+
+     :max-partition     (reduce (fn [r c]
+                           (if (> (:partition-density r) (:partition-density c))
+                             r
+                             c))
+                              (first clusters) clusters)
+     :ranked-partitions (reverse (sort-by :partition-density clusters))
+     :node-labels (:headers p)
+     }
+
+  ))
+
 (defn test1 []
   (let [p (prominence-csv->vset tfile)
         s (prom-vset->similarity-vset p)
@@ -464,7 +513,7 @@
         m (last x)]
         [p s x (map-indexed
                  #(let [md %2]
-                   (println "idx:" %1 "density:" (:density %2)
+                   (println "idx:" %1 "density:" (:partition-density %2)
                             " cluster-count:" (:cluster-count %2))
                    (doseq [c (:clusters md)]
                      (println "cluster:" c)))
@@ -476,17 +525,14 @@
          m (second x)
          clusters (:mclusters m)
          _ (println "Cluster count:" (count clusters))
-         max-cluster (reduce (fn [r c] (if (> (:density r) (:density c)) r c)) (first clusters) clusters)
-         sorted-clusters (reverse (sort-by :density clusters))]
-    (println (:merge max-cluster) "max density: " (:density max-cluster) ", cluster-count:" (:cluster-count max-cluster))
-    {:stuff [ p s x]
-     :clusters clusters
-     :max-cluster max-cluster
-     :sorted-clusters sorted-clusters}
+        max-partition (reduce (fn [r c] (if (> (:partition-density r) (:partition-density c)) r c)) (first clusters) clusters)
+        sorted-partitions (reverse (sort-by :partition-density clusters))]
+    (println (:merge max-partition) "max density: " (:partition-density max-partition) ", cluster-count:" (:cluster-count max-partition))
+    {:stuff             [ p s x]
+     :clusters          clusters
+     :max-partition     max-partition
+     :ranked-partitions sorted-partitions}))
 
-
-
-  ))
 
 
 
@@ -499,6 +545,103 @@
       (println node-labels)
       ))
   )
+
+(defn partition-cluster-details
+  [pcluster nwfn]
+  {:nodes (cluster-edges-to-nodes pcluster)
+   :edges (map (fn [[e1 e2]] (vector e1 e2 (nwfn e1 e2))) pcluster)
+   })
+
+(defn partition-details
+  ([hcluster-results]
+   (partition-details hcluster-results (:max-partition hcluster-results)))
+  ([hcluster-results partition]
+   (let [nweight-fn (create-node-prominence-weight-fn (:prominence-vset hcluster-results))
+         clusters-in-p (:clusters partition)
+         cdetails (reduce #(conj %1 (partition-cluster-details %2 nweight-fn)) [] clusters-in-p)]
+     {:merge (:merge partition)
+      :cluster-count (:cluster-count partition)
+      :cluster-graph-details cdetails}
+
+     )))
+
+
+(defn xaddnode [g node]
+  (let [node (str node)]
+  (le/add-node g node node))
+  )
+
+(defn  xaddedge [g [n1 n2 w]]
+  (let [n1 (str n1)
+        n2 (str n2)]
+    (println "addedge" n1 n2 w)
+    (le/add-edge g (keyword (format "%s-%s" n1 n2)) n1 n2)
+    ) )
+
+
+(defn lacij-graph-cluster0
+  [cluster-detail fname]
+  (let [g (le/graph)
+        g (reduce xaddnode g (:nodes cluster-detail))
+        _ (println "znodes" (:nodes g) "bingo" (keys g))
+        g (reduce xaddedge g (:edges cluster-detail))
+        _ (println "layout....")
+        l (lac/layout g :radial)
+        _ (println "build....")
+        b (le/build l)]
+    (println "export....")
+    (lv/export b fname :indent "yes")
+    ))
+
+
+
+
+#_(defn lacij-graph-partition0
+  [hcluster-results cluster-partition fprefix]
+  (let [fprefix (or fprefix "./xout")
+        numbered-clusters (map-indexed #(vector %1 %2) (:cluster-graph-details cluster-partition))
+        layout-cluster (create-lacij-add-cluster-fn hcluster-results)]
+    (doseq [[cidx c] numbered-clusters]
+      (println "Process " cidx)
+      (lacij-graph-cluster c (format "%s/cluster%d.svg" fprefix cidx))
+      )
+
+    )
+  )
+
+(defn lacij-layout-partition
+  [hcluster-results cluster-partition]
+  (let [
+        node-labels (:node-labels hcluster-results)
+        add-node0 (fn [g node]
+                   (let [node (str node)]
+                     (le/add-node g node node)))
+        add-edge0 (fn [g [n1 n2 w]]
+                   (let [n1 (str n1)
+                         n2 (str n2)]
+                     (le/add-edge g (keyword (format "%s-%s" n1 n2)) n1 n2)))
+        add-node (fn [g node]
+                   (let [node (get node-labels node)]
+                     (le/add-node g node node)))
+        add-edge (fn [g [n1 n2 w]]
+                   (let [n1 (get node-labels n1)
+                         n2 (get node-labels n2)]
+                     (le/add-edge g (keyword (format "%s-%s" n1 n2)) n1 n2)))
+        layout-cluster (fn [cluster-detail]
+                         (let [g (le/graph)
+                               g (reduce add-node g (:nodes cluster-detail))
+                               g (reduce add-edge g (:edges cluster-detail))
+                               l (lac/layout g :radial)]
+                               l))]
+    (map (fn [cd] (layout-cluster cd)) (:cluster-graph-details cluster-partition))))
+
+
+(defn lacij-svg-partition
+  [hcluster-results cluster-partition fprefix]
+  (let [playout (lacij-layout-partition hcluster-results cluster-partition)]
+    (doseq [[cidx clayout] (map-indexed #(vector %1 %2) playout)]
+      (println "Process svg for cluster:" cidx)
+        (lv/export (le/build clayout) (format "%s/cluster%d.svg" fprefix cidx)))))
 
 
 

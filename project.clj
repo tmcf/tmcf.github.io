@@ -38,6 +38,8 @@
                  [clojure-csv/clojure-csv "2.0.2"]
                  [rm-hull/clustering "0.1.3"]
 
+                 [lacij/lacij "0.10.0"]
+
                                         ; to allow nightlight plugin to worOAk
                  ;;[org.flatland/useful "0.9.3"]
 
