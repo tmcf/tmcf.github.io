@@ -116,7 +116,9 @@
                                  [doo "0.1.7"]
                                  [binaryage/devtools "0.8.2"]
                                  [figwheel-sidecar "0.5.8"]
-                                 [com.cemerick/piggieback "0.2.2-SNAPSHOT"]]
+                                 [com.cemerick/piggieback "0.2.2-SNAPSHOT"]
+                                 [org.clojure/tools.namespace "0.2.11"]]
+
                   :plugins      [[com.jakemccrary/lein-test-refresh "0.14.0"]
                                  [lein-doo "0.1.7"]
                                  [lein-figwheel "0.5.8"]

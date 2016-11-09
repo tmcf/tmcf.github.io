@@ -10,41 +10,46 @@
 
             [lcluster-app.pages.vtest1]
             [lcluster-app.pages.vtest2]
+            [lcluster-app.pages.cshow1]
             )
   (:import goog.History))
 
-(defn nav-link [uri title page collapsed?]
-  [:li.nav-item
-   {:class (when (= page (session/get :page)) "active")}
-   [:a.nav-link
-    {:href uri
-     :on-click nil} title]])
+(defn nav-link [uri title page]
+  (let [active (= page (session/get :page))
+        title (if active [:bold {:style {:color "black"}} title]
+                         title)]
+    [:li.nav-item
+     {:class (when active "active")}
+     [:a.nav-link
+      {:href uri
+       :on-click nil} title]]))
+
 
 (defn navbar []
-  (let [collapsed? false]
+  (let []
     (fn []
       [:nav.navbar.navbar-light.bg-faded
-      ; [:button.navbar-toggler.hidden-sm-up
-      ;  {:on-click #(swap! collapsed? not)} "☰"]
        [:div.collapse.navbar-toggleable-xs
-        (when-not collapsed? {:class "in"})
-        [:a.navbar-brand {:href "#/"} "LexSurveys Cluster Tests:"]
+        {:class "in"}
+        [:a.navbar-brand {:href "#/"} "Leximancer:"]
         [:ul.nav.navbar-nav
-         [nav-link "home" "Home2" :home collapsed?]
-         [nav-link "vtest1" "Visual Test1" :vtest1 collapsed?]
-         [nav-link "vtest2" "Cluster Test2" :vtest2 collapsed?]
-         [nav-link "about" "About" :about collapsed?]]]])))
+         [nav-link "home" "Home" :home]
+         [nav-link "cshow1" "Cluster Viz #1" :cshow1]
+         [nav-link "vtest1" "Visual Test1" :vtest1]
+         [nav-link "vtest2" "Cluster Test2" :vtest2]
+         [nav-link "about" "About" :about]]]])))
 
 (defmethod rpage :about []
   [:div.container
    [:div.row
-    [:div.col-md-12
-     "Z1 lcluster-app... work in progress"]]])
+    [:div
+     [:img {:src "img/clustertest-about.png"}]
+     ]]])
 
 (defmethod rpage  :home []
   [:div.container
    [:div.jumbotron
-    [:h1 "Clustering Tests"]
+    [:h2 "LexSurveys Clustering Tests 0.3"]
     ]
    (when-let [docs (session/get :docs)]
      [:div.row
@@ -57,6 +62,7 @@
 (def routes ["/" { "home" :home
                   "vtest1" :vtest1
                   "vtest2" :vtest2
+                  "cshow1" :cshow1
                     "about" :about}])
 
 

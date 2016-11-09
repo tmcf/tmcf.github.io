@@ -21,7 +21,7 @@
     (route/not-found
       (:body
         (error-page {:status 404
-                     :title "page not found"})))))
+                     :title "page not found. Reload from main page."})))))
 
 
 (defn app [] (middleware/wrap-base #'app-routes))

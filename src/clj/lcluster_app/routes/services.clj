@@ -2,9 +2,13 @@
   (:require [ring.util.http-response :refer :all]
             [compojure.api.sweet :refer :all]
             [schema.core :as s]
+            [ring.swagger.upload :as upload]
             [compojure.api.meta :refer [restructure-param]]
             [buddy.auth.accessrules :refer [restrict]]
-            [buddy.auth :refer [authenticated?]]))
+            [buddy.auth :refer [authenticated?]]
+
+            [lcluster-app.service.lcluster :as scluster]
+            ))
 
 (defn access-error [_ _]
   (unauthorized {:error "unauthorized"}))
@@ -32,8 +36,16 @@
        :auth-rules authenticated?
        :current-user user
        (ok {:user user}))
-  (context "/api" []
-    :tags ["thingie"]
+  (context "/api/v1/ctest" []
+    :tags ["cluster test operations"]
+
+    (PUT "/data-set" []
+      :multipart-params [file :- upload/TempFileUpload]
+      :middleware [upload/wrap-multipart-params]
+      (fn [r]
+        ; file {:filename :content-type :size :tempfile (java.io.File)
+        (println "file in:" file)
+        (ok (scluster/set-prominence-data file))))
 
     (GET "/plus" []
       :return       Long

@@ -279,7 +279,7 @@
 
 (defn closest-clusters
   [clusters cdist-fn]
-  (println "closest-clusters....")
+  (xprintln "closest-clusters....")
   (reduce
     (fn [[low-dist low-cluster-combo_ :as current-low] cluster-combo]
       (let [_ (xprintln "closest-clusters/call cluster-distance on combo:"
@@ -329,7 +329,7 @@
   [network total-edge-count]
   (let [dsum (reduce #(+ %1 (cluster-partition-density %2)) 0.0 network)
         dnetwork (/ (* 2.0 dsum) total-edge-count)]
-    (println "Network Density:" dnetwork "total-edge-count" total-edge-count)
+    (xprintln "Network Density:" dnetwork "total-edge-count" total-edge-count)
     dnetwork))
 
 
@@ -381,15 +381,15 @@
         [mclusters mdata] (loop [mclusters starting-mclusters
                                  mdata (post-merge-fn (post-merge-fn) starting-mclusters)]
                             (let [md (last (:mclusters mdata))]
-                              (println "Pass#" (:levels mdata) "cluster count:" (:cluster-count md))
+                              (xprintln "Pass#" (:levels mdata) "cluster count:" (:cluster-count md))
                               (doseq [c (:clusters md)]
                                 (xprintln "cluster:" c))
                               )
                             (if (<= (count mclusters) 1)
                               [mclusters mdata]
-                              (let [_ (println "Pass:" (:levels mdata) "Find closest:============================")
+                              (let [_ (xprintln "Pass:" (:levels mdata) "Find closest:============================")
                                     [cdistance closest-mpair] (closest-clusters mclusters cdist-fn)
-                                    _ (println (format "Found Closest clusters:%2.2E" cdistance)
+                                    _ (xprintln (format "Found Closest clusters:%2.2E" cdistance)
                                                (clojure.string/join "|" (map :data closest-mpair)))
                                     combined-cluster (apply cmerge-fn (map :data closest-mpair))
                                     combined-mcluster (chier/bi-cluster combined-cluster closest-mpair cdistance)
@@ -475,7 +475,7 @@
 
 (defn cluster
   [pfile]
-  (let [p (prominence-csv->vset tfile)
+  (let [p (prominence-csv->vset (or pfile tfile))
         s (prom-vset->similarity-vset p)
         x (hier-cluster-simset s)
         mdata (second x)
@@ -609,17 +609,40 @@
     )
   )
 
+(defn clean-lacij-layout
+  [cl]
+  (println "clean cl with nodes:" (count (:nodes cl)))
+  (let [clean-label #(select-keys % [:text :position])
+        clean-lnode (fn [[nid lnode]]
+                      (let [{:keys [id view inedges outedges]} lnode
+                            {:keys [x y width height labels]} view
+                            ]
+                        {:id id
+                         :x x
+                         :y y
+                         :width width
+                         :height height
+                         :labels  (map clean-label labels)
+                         }))
+        clean-ledge (fn [[eid ledge]]
+                      (let [{:keys [id view src dst]} ledge
+                            {:keys [labels]} view]
+                        {:id id
+                         :labels (map clean-label labels)
+                         :src src
+                         :dst dst
+                         }))]
+    {:width (:width cl)
+     :height (:height cl)
+     :nodes (map clean-lnode (:nodes cl))
+     :edges (map clean-ledge (:edges cl))
+     }
+    ))
+
 (defn lacij-layout-partition
-  [hcluster-results cluster-partition]
+  [hcluster-results cluster-partition & [{:keys [clean] :as opts}]]
   (let [
         node-labels (:node-labels hcluster-results)
-        add-node0 (fn [g node]
-                   (let [node (str node)]
-                     (le/add-node g node node)))
-        add-edge0 (fn [g [n1 n2 w]]
-                   (let [n1 (str n1)
-                         n2 (str n2)]
-                     (le/add-edge g (keyword (format "%s-%s" n1 n2)) n1 n2)))
         add-node (fn [g node]
                    (let [node (get node-labels node)]
                      (le/add-node g node node)))
@@ -632,16 +655,22 @@
                                g (reduce add-node g (:nodes cluster-detail))
                                g (reduce add-edge g (:edges cluster-detail))
                                l (lac/layout g :radial)]
-                               l))]
-    (map (fn [cd] (layout-cluster cd)) (:cluster-graph-details cluster-partition))))
+                               l))
+        _ (println "clean is:" clean "opts is:" opts)
+        process-layout (if clean
+                         (comp clean-lacij-layout layout-cluster)
+                         layout-cluster)]
+    (map (fn [cd] (process-layout cd)) (:cluster-graph-details cluster-partition))))
 
 
 (defn lacij-svg-partition
   [hcluster-results cluster-partition fprefix]
-  (let [playout (lacij-layout-partition hcluster-results cluster-partition)]
+  (let [playout (lacij-layout-partition hcluster-results cluster-partition)
+        dprefix (format "%s/dummy.txt" fprefix)]
+    (clojure.java.io/make-parents  dprefix)
     (doseq [[cidx clayout] (map-indexed #(vector %1 %2) playout)]
       (println "Process svg for cluster:" cidx)
-        (lv/export (le/build clayout) (format "%s/cluster%d.svg" fprefix cidx)))))
+        (lv/export (le/build clayout) (format "%s/cluster-%d.svg" fprefix cidx)))))
 
 
 
