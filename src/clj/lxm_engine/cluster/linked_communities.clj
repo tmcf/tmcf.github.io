@@ -65,16 +65,40 @@
   (reduce #(conj %1 (prom-csv-row-to-pvector %2 threshold)) [] prows))
 
 
+(defn self-prominence-to-avg
+  [pvset]
+  (println "TO-AVG:" (keys pvset) (count (:vectors pvset)))
+  (let [self-prow-to-avg (fn [[ridx rvector]]
+                           (println "self-prow-to-avg:" ridx rvector)
+                           (let [[rsum rcount] (reduce (fn [[sum count] [idx val]]
+                                                        (if (and (> val 0.0) (not= idx ridx))
+                                                          [(+ sum val) (inc count)]
+                                                          [sum count]))
+                                                      [0.0 0] (map-indexed vector rvector))
+                                 ^double avg-value (if (= rcount 0) 0.0 (/ rsum rcount))]
+                             (println (format "Adjust %s %d:%d from %f to %f" (get (:headers pvset) ridx) ridx ridx (cm/mget rvector ridx) avg-value))
+                             (cm/mset! rvector ridx avg-value)))]
+    (doseq [rv (map-indexed vector (:vectors pvset))] (self-prow-to-avg rv))
+    pvset))
+
+
+(def defvset-opts {:self-avg false :threshold 3.0})
+
 (defn prominence-csv->vset
   "Parse a prominence csv into vector representation. Values below threshold are set to 0.0.
   Takes incsv arg that is convertible to a Reader.
   Returns "
-  ( [incsv] (prominence-csv->vset incsv 3.0))
-  ( [incsv ^double threshold]
-  (let [raw-csv (parse-labeled-csv-headers-and-rows incsv)
-        prom-vectors (prominence-csv-rows->vectors (:rows raw-csv) threshold)]
-    {:headers (:headers raw-csv) :vectors prom-vectors}
-    )))
+  ( [incsv] (prominence-csv->vset incsv {}))
+  ([incsv popts]
+   (let [popts (merge defvset-opts popts)
+         threshold (:threshold popts)
+         raw-csv (parse-labeled-csv-headers-and-rows incsv)
+         prom-vectors (prominence-csv-rows->vectors (:rows raw-csv) threshold)
+         pvset {:headers (:headers raw-csv) :vectors prom-vectors}]
+     (if (:self-avg popts)
+       (do (println "SELF AVG")
+           (self-prominence-to-avg pvset))
+       pvset))))
 
 
 
@@ -102,7 +126,7 @@
 
 (defn vec-neighbours
   "Return a sequence of indices for non-zero valued dimensions in this vector.
-   The neighboursin community clustering."
+   The neighbours in community clustering."
   ([v] (vec-neighbours v -1))
   ([v exclude-node]
    (reduce (fn [neighbours [idx val]]
@@ -447,8 +471,8 @@
                              (let [s (simfn  n1 n2)]
                                s))
                            combos)
-          ;;md (apply min distances)
-          md (average distances)
+          md (apply min distances)
+          ;;md (average distances)
           ;;md (average (filter #(< % 1.0) similarites))
           _ (xprintln "cluster-distance C1 C2 using min is:" (format "%2.2E" md)
                      (reduce #(format "%s %2.2E" %1 %2) "" distances))]
@@ -474,8 +498,8 @@
 
 
 (defn cluster
-  [pfile]
-  (let [p (prominence-csv->vset (or pfile tfile))
+  [pfile popts]
+  (let [p (prominence-csv->vset (or pfile tfile) popts)
         s (prom-vset->similarity-vset p)
         x (hier-cluster-simset s)
         mdata (second x)
@@ -538,11 +562,11 @@
 
 (defn mdetails
   [merge headers]
-  (println (dissoc merge :clusters))
+  (xprintln (dissoc merge :clusters))
   (doseq [ c (:clusters merge)]
     (let [ nodes (cluster-edges-to-nodes c)
           node-labels (map #(get headers %) nodes)]
-      (println node-labels)
+      (xprintln node-labels)
       ))
   )
 
@@ -574,7 +598,7 @@
 (defn  xaddedge [g [n1 n2 w]]
   (let [n1 (str n1)
         n2 (str n2)]
-    (println "addedge" n1 n2 w)
+    ;(println "addedge" n1 n2 w)
     (le/add-edge g (keyword (format "%s-%s" n1 n2)) n1 n2)
     ) )
 
@@ -583,13 +607,13 @@
   [cluster-detail fname]
   (let [g (le/graph)
         g (reduce xaddnode g (:nodes cluster-detail))
-        _ (println "znodes" (:nodes g) "bingo" (keys g))
+        ;_ (println "znodes" (:nodes g) "bingo" (keys g))
         g (reduce xaddedge g (:edges cluster-detail))
-        _ (println "layout....")
+        ;_ (println "layout....")
         l (lac/layout g :radial)
-        _ (println "build....")
+        ;_ (println "build....")
         b (le/build l)]
-    (println "export....")
+    ;(println "export....")
     (lv/export b fname :indent "yes")
     ))
 
@@ -609,7 +633,7 @@
     )
   )
 
-(defn clean-lacij-layout
+(defn clean-lacij-layout0
   [cl]
   (println "clean cl with nodes:" (count (:nodes cl)))
   (let [clean-label #(select-keys % [:text :position])
@@ -639,8 +663,63 @@
      }
     ))
 
+(defn clean-lacij-layout
+  [cl]
+  ;(println "clean cl with nodes:" (count (:nodes cl)))
+  (let [clean-label #(select-keys % [:text :position])
+        clean-lnode (fn [[_nidkey lnode]]
+                      (let [{:keys [id view _inedges _outedges]} lnode
+                            {:keys [x y width height labels]} view
+                            ]
+                        {:id id
+                         :x x
+                         :y y
+                         :width width
+                         :height height
+                         :labels  (map clean-label labels)
+                         }))
+        clean-ledge (fn [[_eidkey ledge]]
+                      (let [{:keys [id view src dst]} ledge
+                            {:keys [labels]} view]
+                        {:id id
+                         :labels (map clean-label labels)
+                         :src src
+                         :dst dst
+                         }))
+        owidth (:width cl)
+        oheight (:height cl)
+        lnodes (:nodes cl)
+        ; dimensions of lacij have a huge offset, need to pull it diagram back in
+        first-cnode (clean-lnode (first lnodes))
+        ;offset-x 0 ;(:x first-cnode)
+        ;offset-y 0 ;(:y first-cnode)
+        clean-fix-node (fn [[^double pxmin ^double pymin ^double pwidth ^double pheight nodes] lnodekv]
+                         (let [cnode (clean-lnode lnodekv)
+                               {:keys [id x y width height]} cnode
+                               ;_ (println "pxmin" pxmin "pymin" pymin "pwidth" pwidth "pheight" pheight)
+                               ;_ (println "cleaned node:" lnodekv cnode)
+                               ;_ (println x y width height)
+                               pxmin (Math/min ^double pxmin ^double x)
+                               pymin (Math/min pymin y)
+                               pwidth (Math/max pwidth (+ x width))
+                               pheight (Math/max pheight (+ y height))]
+                            [pxmin pymin pwidth pheight (assoc nodes id cnode)]
+                           ))
+        [px py pwidth pheight cleaned-nodes] (reduce clean-fix-node [Double/MAX_VALUE Double/MAX_VALUE 0.0 0.0 {}] (:nodes cl))]
+    {:owidth owidth
+     :oheight oheight
+     :x-offset px
+     :y-offset py
+     :width pwidth
+     :height pheight
+     :nodes (into {} (map (fn [[nid cnode]]  [ nid (assoc cnode :x (- (:x cnode) px) :y (- (:y cnode) py))]) cleaned-nodes))
+     :edges (map clean-ledge (:edges cl))
+     }
+    ))
+
 (defn lacij-layout-partition
-  [hcluster-results cluster-partition & [{:keys [clean] :as opts}]]
+  [hcluster-results cluster-partition & [{:keys [clean graph-opts] :as opts :or {graph-opts {}}}]]
+  (println "lacij-layout-parition: opts" opts "graph-opts" graph-opts)
   (let [
         node-labels (:node-labels hcluster-results)
         add-node (fn [g node]
@@ -651,7 +730,7 @@
                          n2 (get node-labels n2)]
                      (le/add-edge g (keyword (format "%s-%s" n1 n2)) n1 n2)))
         layout-cluster (fn [cluster-detail]
-                         (let [g (le/graph)
+                         (let [g (apply le/graph graph-opts)
                                g (reduce add-node g (:nodes cluster-detail))
                                g (reduce add-edge g (:edges cluster-detail))
                                l (lac/layout g :radial)]
@@ -664,13 +743,15 @@
 
 
 (defn lacij-svg-partition
-  [hcluster-results cluster-partition fprefix]
-  (let [playout (lacij-layout-partition hcluster-results cluster-partition)
+  [hcluster-results cluster-partition fprefix & [opts]]
+  (println "SVG PARTITION OPTS:" opts)
+  (let [playout (apply lacij-layout-partition hcluster-results cluster-partition opts)
         dprefix (format "%s/dummy.txt" fprefix)]
     (clojure.java.io/make-parents  dprefix)
     (doseq [[cidx clayout] (map-indexed #(vector %1 %2) playout)]
       (println "Process svg for cluster:" cidx)
-        (lv/export (le/build clayout) (format "%s/cluster-%d.svg" fprefix cidx)))))
+        (lv/export (le/build clayout) (format "%s/cluster-%d.svg" fprefix cidx)))
+    playout))
 
 
 

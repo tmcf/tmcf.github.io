@@ -41,11 +41,13 @@
 
     (PUT "/data-set" []
       :multipart-params [file :- upload/TempFileUpload]
+      :query-params [savg :- Boolean]
       :middleware [upload/wrap-multipart-params]
       (fn [r]
         ; file {:filename :content-type :size :tempfile (java.io.File)
+        (println "SAVG:" savg)
         (println "file in:" file)
-        (ok (scluster/set-prominence-data file))))
+        (ok (scluster/set-prominence-data file {:self-avg savg}))))
 
     (GET "/plus" []
       :return       Long
