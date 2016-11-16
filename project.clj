@@ -43,8 +43,8 @@
                                         ; to allow nightlight plugin to worOAk
                  ;;[org.flatland/useful "0.9.3"]
 
-                [com.leximancer/leximancer-util "V4.50.19-SNAPSHOT"
-                 :exclusions [org.antlr/antlr-runtime commons-io com.google.guava/guava org.codehaus.woodstox/stax2-api]]
+                 [com.leximancer/leximancer-util "4.50.20-SNAPSHOT"
+                  :exclusions [org.antlr/antlr-runtime commons-io com.google.guava/guava org.codehaus.woodstox/stax2-api]]
 
                  ;; cljs
                  [prismatic/dommy "1.1.0"]
@@ -57,7 +57,7 @@
 
                  [cljsjs/d3 "4.2.2-0"]
 
-                 [cljsjs/react-dropzone "3.7.0-0"]
+                 ;;[cljsjs/react-dropzone "3.7.0-0"]
 
                  ]
 

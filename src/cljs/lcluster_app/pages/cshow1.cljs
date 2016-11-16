@@ -1,7 +1,7 @@
 (ns lcluster-app.pages.cshow1
   (:require [lcluster-app.pages.core :refer [rpage]]
             [cljsjs.d3]
-            [cljsjs.react-dropzone]
+            ;;[cljsjs.react-dropzone]
             [reagent.core :as rc]
             [reagent.session :as rsession]
             [cljsjs.jquery]
@@ -444,29 +444,29 @@
     [:div
      [rb/Form {:id :cshow1-form :horizontal true}
       [rb/Checkbox {:onChange #(swap! cstate assoc :self-avg (not (:self-avg s)))} "Use Prominence [A->A] = average-prominence[A-N]"]
-       (rb/HSelect "Linkage" :cluster-linkage
-                   [[:option {:value :min} "Min (matches Nature Paper)"]
-                    [:option {:value :avg} "Average (R default)"]]
-                   {:v (or (:linkage5 s) "") :h "Cluster distance" :fmeta nil})
+      (rb/HSelect "Linkage" :cluster-linkage
+                  [[:option {:value :min} "Min (matches Nature Paper)"]
+                   [:option {:value :avg} "Average (R default)"]]
+                  {:v (or (:linkage5 s) "") :h "Cluster distance" :fmeta nil})
 
       [:div.btn.btn-primary.btn-file  {:bsStyle :primary}
        "Upload Prominence CSV"
-      [rb/FormControl
-       {:id  "csvfileupload"
-        :type "file"
-        :label "File"
-        :onChange promFileSelected
-        }]]
-      (if (> (:cluster-count cdetails) 0)
-        [try-layout-2 "p29185" (:cluster-count cdetails) cdetails]
+       [rb/FormControl
+        {:id  "csvfileupload"
+         :type "file"
+         :label "File"
+         :onChange promFileSelected
+         }]]
+      (when (> (:cluster-count cdetails) 0)
+        [try-layout-2 "p29185" (:cluster-count cdetails) cdetails])
 
-       ;; (list
-       ;;[try-layout-1 (:cluster-count cdetails) cdetails]
-          ;;[lacij-svg-maps (:cluster-count cdetails) cdetails]
+      ;; (list
+      (if (> (:cluster-count cdetails) 0)
+        (list [:div {:key "z1"} [try-layout-1 (:cluster-count cdetails) cdetails]]
+              [:div {:key "x2"} [lacij-svg-maps (:cluster-count cdetails) cdetails]])
         ;;  )
         [:div "Select prominence file to cluster"]
-        )
-      ]]))
+        )]]))
 
 
 

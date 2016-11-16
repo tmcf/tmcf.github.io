@@ -1,7 +1,7 @@
 (ns lcluster-app.pages.vtest1
   (:require [lcluster-app.pages.core :refer [rpage]]
             [cljsjs.d3]
-            [cljsjs.react-dropzone]
+            ;;[cljsjs.react-dropzone]
             [reagent.core :as rc]
             [reagent.session :as rsession]))
 

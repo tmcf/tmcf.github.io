@@ -22,6 +22,8 @@
   )
 
 
+(cm/set-current-implementation :vectorz)
+
 (defn xprintln [& args]
   nil)
 
@@ -71,11 +73,12 @@
   (let [self-prow-to-avg (fn [[ridx rvector]]
                            (println "self-prow-to-avg:" ridx rvector)
                            (let [[rsum rcount] (reduce (fn [[sum count] [idx val]]
-                                                        (if (and (> val 0.0) (not= idx ridx))
-                                                          [(+ sum val) (inc count)]
-                                                          [sum count]))
-                                                      [0.0 0] (map-indexed vector rvector))
+                                                         (if (and (> val 0.0) (not= idx ridx))
+                                                           [(+ sum val) (inc count)]
+                                                           [sum count]))
+                                                       [0.0 0] (map-indexed vector rvector))
                                  ^double avg-value (if (= rcount 0) 0.0 (/ rsum rcount))]
+                             (println "class rvector:" (class rvector))
                              (println (format "Adjust %s %d:%d from %f to %f" (get (:headers pvset) ridx) ridx ridx (cm/mget rvector ridx) avg-value))
                              (cm/mset! rvector ridx avg-value)))]
     (doseq [rv (map-indexed vector (:vectors pvset))] (self-prow-to-avg rv))
