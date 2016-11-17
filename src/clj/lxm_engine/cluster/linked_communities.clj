@@ -314,7 +314,7 @@
             dist (apply cdist-fn cluster-combo)
             _ (xprintln "closest-clusters:  got pair dist:" (format "%2.2E" dist) "for"
                        (mclusters-str cluster-combo))]
-        (if (< dist low-dist)
+        (if (<= dist low-dist)
           [dist cluster-combo]
           current-low)))
     [MAX_CLUSTER_DISTANCE [-1 -1]]
@@ -366,14 +366,16 @@
   (let [ecount (count (:edges simset))]
     (fn ([] {:levels 0
              :mclusters []})
-      ([mdata new-clusters]
+      ([mdata new-clusters ^double cdistance]
        (let [levels (inc (:levels mdata))
              old-networks (:mclusters mdata)
              new-network (into [] (map :data new-clusters))
-             ndensity (network-partition-density new-network ecount)]
+             ndensity (network-partition-density new-network ecount)
+             _ (println (format "merge details: %d cdistance;%f density:%f cluster-count:%d" levels (- 1.0 cdistance) ndensity (count new-network)))]
          {:levels levels
           :mclusters (conj old-networks {:merge             levels
                                          :partition-density ndensity
+                                         :closest-similarity (- 1.0 cdistance)
                                          :cluster-count     (count new-network)
                                          :clusters          new-network})})))))
 
@@ -406,7 +408,7 @@
                             (cdist-fn (:data c1) (:data c2))))
         starting-mclusters (set (map chier/bi-cluster initial-clusters))
         [mclusters mdata] (loop [mclusters starting-mclusters
-                                 mdata (post-merge-fn (post-merge-fn) starting-mclusters)]
+                                 mdata (post-merge-fn (post-merge-fn) starting-mclusters 1.0)]
                             (let [md (last (:mclusters mdata))]
                               (xprintln "Pass#" (:levels mdata) "cluster count:" (:cluster-count md))
                               (doseq [c (:clusters md)]
@@ -414,7 +416,7 @@
                               )
                             (if (<= (count mclusters) 1)
                               [mclusters mdata]
-                              (let [_ (xprintln "Pass:" (:levels mdata) "Find closest:============================")
+                              (let [_ (println "Pass:" (:levels mdata) "Find closest:============================")
                                     [cdistance closest-mpair] (closest-clusters mclusters cdist-fn)
                                     _ (xprintln (format "Found Closest clusters:%2.2E" cdistance)
                                                (clojure.string/join "|" (map :data closest-mpair)))
@@ -422,7 +424,7 @@
                                     combined-mcluster (chier/bi-cluster combined-cluster closest-mpair cdistance)
                                     mclusters (-> (apply disj mclusters closest-mpair)
                                                   (conj combined-mcluster))
-                                    mdata (post-merge-fn mdata mclusters)]
+                                    mdata (post-merge-fn mdata mclusters cdistance)]
                                 (recur mclusters mdata))))]
     [mclusters mdata]
     )

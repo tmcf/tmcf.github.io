@@ -230,7 +230,7 @@
   [:div
    [:div "Cluster# " cidx]
    (for [[nid node] (:nodes clayout)]
-     ^{:key nid}[:div nid])
+     ^{:key nid}[:span (str nid", ")])
 
 
     ])))
